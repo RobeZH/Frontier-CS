@@ -253,13 +253,13 @@ frontier-eval batch --export-failed failed.txt --results-dir results/
 
 ```bash
 # Single problem
-python generate_oneshot_gpt.py research/flash_attn --model gpt-5
+python generate_solutions.py research/flash_attn --model gpt-5
 
 # All problems
-python generate_oneshot_gpt.py --model gpt-5
+python generate_solutions.py --model gpt-5
 
 # Multiple variants
-python generate_oneshot_gpt.py --model gpt-5 --variants 5
+python generate_solutions.py --model gpt-5 --variants 5
 ```
 
 ---
@@ -315,18 +315,17 @@ Variant indices to generate (one per line):
 
 ## Results
 
-### Output Files
-- `results/{solution}_{problem}_result.txt`: Individual results
-- `results/results.csv`: Aggregated scores
-- `results/summary.txt`: Summary statistics
+Batch evaluation automatically generates these files in `--results-dir`:
 
-### Syncing Results
-
-```bash
-python scripts/results_sync.py --results-dir results
-```
-
-Rebuilds CSV, detects missing results, computes averages per model.
+| File | Description |
+|------|-------------|
+| `results.csv` | All results (solution, problem, score, status) |
+| `by_model.csv` | Aggregated by model |
+| `by_problem.csv` | Aggregated by problem |
+| `summary.txt` | Human-readable summary |
+| `failed.txt` | Failed pairs (for retry) |
+| `pending.txt` | Incomplete pairs |
+| `.state.json` | Internal state for resume |
 
 ---
 
@@ -334,7 +333,7 @@ Rebuilds CSV, detects missing results, computes averages per model.
 
 ```bash
 # 1. Generate solutions
-python generate_oneshot_gpt.py --model gpt-5
+python generate_solutions.py --model gpt-5
 
 # 2. Run batch evaluation with bucket storage
 frontier-eval batch --pairs-file pairs.txt --skypilot \
@@ -414,28 +413,13 @@ batch.evaluate_model("gpt-5", problems=["flash_attn", "cross_entropy"])
 
 ## Scripts Reference
 
-Scripts in `research/`:
-
 | Script | Description |
 |--------|-------------|
-| `generate_oneshot_gpt.py` | Generate solutions using LLMs |
-| `scripts/results_sync.py` | Rebuild CSV from result files |
-| `scripts/check_solution_matrix.py` | Verify solutions/ directory coverage |
-| `scripts/submit.py` | Submit solution to evaluation server |
-| `scripts/fetch.py` | Fetch evaluation result from server |
+| `generate_solutions.py` | Generate solutions using LLMs |
 
 ### Usage Examples
 
 ```bash
 # Generate solutions for a model
-python generate_oneshot_gpt.py --model gpt-5
-
-# Check solution coverage
-python scripts/check_solution_matrix.py
-
-# Bulk submit solutions
-python scripts/submit.py --submissions submissions/ --out sid_map.json
-
-# Fetch results by sid map
-python scripts/fetch.py --map sid_map.json --out results.json
+python generate_solutions.py --model gpt-5
 ```

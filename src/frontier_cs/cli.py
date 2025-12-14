@@ -67,15 +67,17 @@ Examples:
         """,
     )
 
-    # Positional arguments
+    # Problem and solution arguments (as options to avoid conflict with subcommands)
     parser.add_argument(
         "problem_id",
         nargs="?",
+        default=None,
         help="Problem ID (e.g., flash_attn, gemm_optimization/squares)",
     )
     parser.add_argument(
         "solution",
         nargs="?",
+        default=None,
         help="Path to solution file",
     )
 
@@ -198,36 +200,56 @@ Examples:
         """,
     )
 
-    batch_input = batch_parser.add_argument_group("Input Options (mutually exclusive)")
-    batch_input.add_argument(
+    # Pairs input (mutually exclusive)
+    pairs_group = batch_parser.add_mutually_exclusive_group()
+    pairs_group.add_argument(
+        "--pairs",
+        type=str,
+        help="Comma-separated pairs (solution:problem,solution:problem)",
+    )
+    pairs_group.add_argument(
         "--pairs-file",
         type=Path,
         help="Pairs file (solution:problem per line)",
     )
-    batch_input.add_argument(
-        "--problems-file",
-        type=Path,
-        help="Problems file (one per line), used with --models-file",
-    )
-    batch_input.add_argument(
-        "--models-file",
-        type=Path,
-        help="Models file (one per line), used with --problems-file",
-    )
-    batch_input.add_argument(
-        "--variants-file",
-        type=Path,
-        help="Variants file (indices, one per line)",
-    )
-    batch_input.add_argument(
-        "--model",
-        type=str,
-        help="Single model name (e.g., gpt-5)",
-    )
-    batch_input.add_argument(
+
+    # Problems input (mutually exclusive)
+    problems_group = batch_parser.add_mutually_exclusive_group()
+    problems_group.add_argument(
         "--problems",
         type=str,
         help="Comma-separated problem IDs",
+    )
+    problems_group.add_argument(
+        "--problems-file",
+        type=Path,
+        help="Problems file (one per line)",
+    )
+
+    # Models input (mutually exclusive)
+    models_group = batch_parser.add_mutually_exclusive_group()
+    models_group.add_argument(
+        "--models",
+        type=str,
+        help="Comma-separated model names (e.g., gpt-5,claude-sonnet-4-5)",
+    )
+    models_group.add_argument(
+        "--models-file",
+        type=Path,
+        help="Models file (one per line)",
+    )
+
+    # Variants input (mutually exclusive)
+    variants_group = batch_parser.add_mutually_exclusive_group()
+    variants_group.add_argument(
+        "--variants",
+        type=str,
+        help="Comma-separated variant indices (e.g., 0,1,2)",
+    )
+    variants_group.add_argument(
+        "--variants-file",
+        type=Path,
+        help="Variants file (indices, one per line)",
     )
 
     batch_output = batch_parser.add_argument_group("Output Options")
@@ -303,6 +325,68 @@ Examples:
         "--sync-bucket",
         action="store_true",
         help="Sync results from bucket to local state and export reports",
+    )
+
+    # Check subcommand
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Check solution matrix coverage",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check coverage with default files (problems.txt, models.txt, num_solutions.txt)
+  frontier-eval check
+
+  # Check with custom files
+  frontier-eval check --problems-file my_problems.txt --models-file my_models.txt
+
+  # Generate pairs file for batch evaluation
+  frontier-eval check --output-pairs pairs.txt
+
+  # Only include existing solutions in pairs file
+  frontier-eval check --output-pairs pairs.txt --existing-only
+        """,
+    )
+
+    check_parser.add_argument(
+        "--problems-file",
+        type=Path,
+        default=Path("research/problems.txt"),
+        help="Problems file (default: research/problems.txt)",
+    )
+    check_parser.add_argument(
+        "--models-file",
+        type=Path,
+        default=Path("research/models.txt"),
+        help="Models file (default: research/models.txt)",
+    )
+    check_parser.add_argument(
+        "--variants-file",
+        type=Path,
+        default=Path("research/num_solutions.txt"),
+        help="Variants file (default: research/num_solutions.txt)",
+    )
+    check_parser.add_argument(
+        "--solutions-dir",
+        type=Path,
+        default=Path("solutions"),
+        help="Solutions directory (default: solutions)",
+    )
+    check_parser.add_argument(
+        "--problems-dir",
+        type=Path,
+        default=Path("research"),
+        help="Problems directory (default: research)",
+    )
+    check_parser.add_argument(
+        "--output-pairs",
+        type=Path,
+        help="Write pairs file to this path",
+    )
+    check_parser.add_argument(
+        "--existing-only",
+        action="store_true",
+        help="Only include existing solutions in pairs file (for evaluation)",
     )
 
     return parser
@@ -469,23 +553,51 @@ def run_batch(args: argparse.Namespace) -> int:
         print(f"\nComplete: {state.success_count}/{state.total_pairs} successful")
         return 0 if state.error_count == 0 else 1
 
+    # Helper: get problems list from --problems or --problems-file
+    def get_problems():
+        if args.problems:
+            return [p.strip() for p in args.problems.split(",")]
+        elif args.problems_file:
+            if not args.problems_file.exists():
+                print(f"Error: Problems file not found: {args.problems_file}", file=sys.stderr)
+                return None
+            return read_problems_file(args.problems_file)
+        return None
+
+    # Helper: get models list from --models or --models-file
+    def get_models():
+        if args.models:
+            return [m.strip() for m in args.models.split(",")]
+        elif args.models_file:
+            if not args.models_file.exists():
+                print(f"Error: Models file not found: {args.models_file}", file=sys.stderr)
+                return None
+            return read_models_file(args.models_file)
+        return None
+
+    # Helper: get variants list from --variants or --variants-file
+    def get_variants():
+        if args.variants:
+            return [int(v.strip()) for v in args.variants.split(",")]
+        elif args.variants_file:
+            if not args.variants_file.exists():
+                print(f"Error: Variants file not found: {args.variants_file}", file=sys.stderr)
+                return None
+            from .batch.pair import read_variants_file
+            return read_variants_file(args.variants_file)
+        return None
+
     # Handle complete command (evaluate missing pairs)
     if args.complete:
-        if not args.problems_file or not args.models_file:
-            print("Error: --complete requires --problems-file and --models-file", file=sys.stderr)
-            return 1
-        if not args.problems_file.exists():
-            print(f"Error: Problems file not found: {args.problems_file}", file=sys.stderr)
-            return 1
-        if not args.models_file.exists():
-            print(f"Error: Models file not found: {args.models_file}", file=sys.stderr)
+        problems = get_problems()
+        models = get_models()
+        if not problems or not models:
+            print("Error: --complete requires --problems/--problems-file and --models/--models-file", file=sys.stderr)
             return 1
 
-        problems = read_problems_file(args.problems_file)
-        models = read_models_file(args.models_file)
-
+        variants = get_variants()
         print(f"\nEvaluating missing pairs ({len(problems)} problems × {len(models)} models)")
-        state = batch.evaluate_missing(problems, models)
+        state = batch.evaluate_missing(problems, models, variants=variants)
         print(f"\nComplete: {state.success_count}/{state.total_pairs} successful")
         return 0 if state.error_count == 0 else 1
 
@@ -493,7 +605,29 @@ def run_batch(args: argparse.Namespace) -> int:
     resume = not args.no_resume
     state = None
 
-    if args.pairs_file:
+    has_pairs = args.pairs or args.pairs_file
+    has_expansion = (args.problems or args.problems_file) and (args.models or args.models_file)
+
+    if has_pairs and has_expansion:
+        print("Error: Cannot use --pairs/--pairs-file together with --problems + --models", file=sys.stderr)
+        return 1
+
+    if args.pairs:
+        # Mode: pairs from command line
+        from .batch.pair import Pair
+        pairs = []
+        for p in args.pairs.split(","):
+            p = p.strip()
+            if ":" not in p:
+                print(f"Error: Invalid pair format (expected solution:problem): {p}", file=sys.stderr)
+                return 1
+            solution, problem = p.split(":", 1)
+            pairs.append(Pair(solution=solution.strip(), problem=problem.strip()))
+
+        print(f"\nBatch evaluation: {len(pairs)} pairs")
+        state = batch.evaluate_pairs(pairs, resume=resume)
+
+    elif args.pairs_file:
         # Mode: pairs file
         if not args.pairs_file.exists():
             print(f"Error: Pairs file not found: {args.pairs_file}", file=sys.stderr)
@@ -502,35 +636,28 @@ def run_batch(args: argparse.Namespace) -> int:
         print(f"\nBatch evaluation from pairs file: {args.pairs_file}")
         state = batch.evaluate_pairs_file(args.pairs_file, resume=resume)
 
-    elif args.problems_file and args.models_file:
-        # Mode: problems × models files
-        if not args.problems_file.exists():
-            print(f"Error: Problems file not found: {args.problems_file}", file=sys.stderr)
-            return 1
-        if not args.models_file.exists():
-            print(f"Error: Models file not found: {args.models_file}", file=sys.stderr)
+    elif (args.problems or args.problems_file) and (args.models or args.models_file):
+        # Mode: problems × models expansion
+        problems = get_problems()
+        models = get_models()
+        variants = get_variants()
+        if not problems or not models:
             return 1
 
-        print(f"\nBatch evaluation from problems × models")
-        state = batch.evaluate_from_files(
-            args.problems_file,
-            args.models_file,
-            variants_file=args.variants_file,
-            resume=resume,
-        )
-
-    elif args.model and args.problems:
-        # Mode: single model × problem list
-        problems = [p.strip() for p in args.problems.split(",")]
-        print(f"\nBatch evaluation: model={args.model}, problems={problems}")
-        state = batch.evaluate_model(
-            args.model,
+        from .batch.pair import expand_pairs
+        pairs = expand_pairs(
             problems,
-            resume=resume,
+            models,
+            variants,
+            solutions_dir=batch.base_dir / "solutions",
+            validate_paths=True,
         )
+
+        print(f"\nBatch evaluation: {len(problems)} problems × {len(models)} models = {len(pairs)} pairs")
+        state = batch.evaluate_pairs(pairs, resume=resume)
 
     else:
-        print("Error: Specify input with --pairs-file, --problems-file + --models-file, or --model + --problems", file=sys.stderr)
+        print("Error: Specify input with --pairs, --pairs-file, or --problems + --models", file=sys.stderr)
         return 1
 
     # Print summary
@@ -551,14 +678,61 @@ def run_batch(args: argparse.Namespace) -> int:
     return 0 if state.error_count == 0 else 1
 
 
+def run_check(args: argparse.Namespace) -> int:
+    """Run check command to verify solution matrix coverage."""
+    from .check import check_solution_matrix, generate_pairs_file
+
+    try:
+        result = check_solution_matrix(
+            problems_file=args.problems_file,
+            models_file=args.models_file,
+            variants_file=args.variants_file,
+            solutions_dir=args.solutions_dir,
+            problems_dir=args.problems_dir,
+        )
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Print summary
+    print(result.summary())
+
+    # Generate pairs file if requested
+    if args.output_pairs:
+        include_missing = not args.existing_only
+        count = generate_pairs_file(result, args.output_pairs, include_missing=include_missing)
+        mode = "all expected" if include_missing else "existing only"
+        print(f"\nWrote {count} pairs ({mode}) to {args.output_pairs}")
+
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point."""
-    parser = create_parser()
-    args = parser.parse_args(argv)
+    if argv is None:
+        argv = sys.argv[1:]
 
-    # Handle batch subcommand
-    if args.command == "batch":
-        return run_batch(args)
+    # Handle subcommands first by checking if first arg is a subcommand
+    subcommands = {"batch", "check"}
+    if argv and argv[0] in subcommands:
+        parser = create_parser()
+        args = parser.parse_args(argv)
+        if args.command == "batch":
+            return run_batch(args)
+        if args.command == "check":
+            return run_check(args)
+
+    # For single evaluations, create a parser without subcommands
+    # to avoid argparse confusion with positional args
+    parser = create_parser()
+    # Inject a dummy command to satisfy the subparser
+    args = parser.parse_args(argv + ["batch", "--status"]) if not any(a in argv for a in subcommands) else parser.parse_args(argv)
+    # Reset command since we used a dummy
+    args.command = None
+    args.status = False
 
     # Determine track
     track = "algorithmic" if args.algorithmic else "research"

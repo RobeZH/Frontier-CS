@@ -69,7 +69,7 @@ frontier-eval --problems flash_attn,cross_entropy solution.py
 
 ```bash
 cd research
-python generate_oneshot_gpt.py --model <model_name>
+python generate_solutions.py --model <model_name>
 ```
 
 ### Algorithmic Problems

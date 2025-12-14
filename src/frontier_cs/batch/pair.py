@@ -5,10 +5,11 @@ A Pair represents a (solution, problem) combination to evaluate.
 """
 
 import hashlib
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+
+from ..models import get_model_prefix, sanitize_problem_name
 
 
 @dataclass
@@ -61,59 +62,7 @@ def _sanitize_name(name: str) -> str:
     return sanitized or "job"
 
 
-def get_model_prefix(model: str) -> str:
-    """
-    Convert model name to the prefix format used in solution folder names.
-
-    Examples:
-    - 'gpt-5' or 'gpt-5-*' -> 'gpt5'
-    - 'gemini/gemini-2.5-pro' -> 'gemini2.5pro'
-    - 'anthropic/claude-sonnet-4-5-20250929' -> 'claude4.5sonnet'
-    """
-    # Remove provider prefix if present
-    if "/" in model:
-        model = model.split("/", 1)[1]
-
-    model_lower = model.lower().strip()
-
-    # Handle GPT-5 variants
-    if model_lower.startswith("gpt-5.1") or model_lower.startswith("gpt5.1"):
-        return "gpt5.1"
-    if model_lower.startswith("gpt-5") or model_lower.startswith("gpt5"):
-        return "gpt5"
-
-    # Handle Gemini variants
-    if "gemini-2.5-pro" in model_lower or "gemini2.5pro" in model_lower:
-        return "gemini2.5pro"
-
-    gemini_match = re.match(r"gemini-?(\d+\.?\d*)-?pro", model_lower)
-    if gemini_match:
-        version = gemini_match.group(1)
-        return f"gemini{version}pro"
-
-    # Handle Claude variants
-    claude_match = re.match(r"claude-([a-z]+)-(\d+)-(\d+)", model_lower)
-    if claude_match:
-        family = claude_match.group(1)
-        major = claude_match.group(2)
-        minor = claude_match.group(3)
-        return f"claude{major}.{minor}{family}"
-
-    # Default: sanitize by removing all non-alphanumeric characters
-    sanitized = re.sub(r"[^a-zA-Z0-9]+", "", model_lower)
-    return sanitized or "model"
-
-
-def get_problem_name(problem_path: str) -> str:
-    """
-    Convert problem path to a name used in solution folder names.
-
-    Examples:
-    - 'flash_attn' -> 'flash_attn'
-    - 'vdb_pareto/balanced' -> 'vdb_pareto_balanced'
-    """
-    parts = [p for p in problem_path.split("/") if p]
-    return "_".join(parts)
+# get_model_prefix and sanitize_problem_name imported from ..models
 
 
 def expand_pairs(
@@ -143,7 +92,7 @@ def expand_pairs(
     pairs: List[Pair] = []
 
     for problem in problems:
-        problem_name = get_problem_name(problem)
+        problem_name = sanitize_problem_name(problem)
 
         for model in models:
             model_prefix = get_model_prefix(model)

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Auto-generate one-shot GPT solutions from problem README files.
-Usage: python3 generate_oneshot_gpt.py research/vdb_pareto/balanced
+Generate LLM solutions from problem README files.
+
+Supports multiple providers: OpenAI, Google (Gemini), Anthropic (Claude), xAI (Grok), DeepSeek.
+
+Usage:
+    python generate_solutions.py --model gpt-5
+    python generate_solutions.py research/flash_attn --model claude-sonnet-4-5
 """
 
 import sys
@@ -31,6 +36,7 @@ from test_scripts.llm_interface import (
 )
 
 from frontier_cs.config import load_runtime_config, get_effective_gpu_type
+from frontier_cs.models import get_model_prefix, detect_provider, is_reasoning_model
 
 PREPARE_ENV_TEMPLATE = """#!/usr/bin/env bash
 set -euo pipefail
@@ -479,7 +485,7 @@ def _detect_provider(model: str, actual_model_lower: Optional[str] = None) -> st
 
     if (provider_hint in {"", "openai", "azure", "azure_openai"}) and actual_lower.startswith("gpt"):
         return "openai"
-    if provider_hint in {"", "gemini", "google"} or "gemini" in actual_lower:
+    if provider_hint in {"gemini", "google"} or "gemini" in actual_lower:
         return "google"
     if provider_hint == "anthropic" or "claude" in actual_lower:
         return "anthropic"
@@ -759,48 +765,7 @@ def sanitize_model_suffix(model: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", model).strip("_") or "model"
 
 
-def get_model_prefix(model: str) -> str:
-    """
-    Convert model name to the prefix format used in solution folder names.
-    Examples:
-    - 'gpt-5' or 'gpt-5-*' -> 'gpt5'
-    - 'gemini/gemini-2.5-pro' or 'gemini-2.5-pro' -> 'gemini2.5pro'
-    - Other models -> sanitized version
-    """
-    # Remove provider prefix if present (e.g., 'gemini/gemini-2.5-pro' -> 'gemini-2.5-pro')
-    if "/" in model:
-        model = model.split("/", 1)[1]
-    
-    model_lower = model.lower().strip()
-    
-    # Handle GPT-5 variants
-    # Keep 'gpt-5.1' distinct so its artifacts prefix as 'gpt5.1'
-    if model_lower.startswith("gpt-5.1") or model_lower.startswith("gpt5.1"):
-        return "gpt5.1"
-    if model_lower.startswith("gpt-5") or model_lower.startswith("gpt5"):
-        return "gpt5"
-    
-    # Handle Gemini 2.5 Pro variants
-    if "gemini-2.5-pro" in model_lower or "gemini2.5pro" in model_lower:
-        return "gemini2.5pro"
-    
-    # Handle other Gemini variants (e.g., gemini-1.5-pro -> gemini1.5pro)
-    gemini_match = re.match(r"gemini-?(\d+\.?\d*)-?pro", model_lower)
-    if gemini_match:
-        version = gemini_match.group(1)
-        return f"gemini{version}pro"
-
-    # Handle Claude variants (e.g., claude-sonnet-4-5-20250929 -> claude4.5sonnet)
-    claude_match = re.match(r"claude-([a-z]+)-(\d+)-(\d+)", model_lower)
-    if claude_match:
-        family = claude_match.group(1)
-        major = claude_match.group(2)
-        minor = claude_match.group(3)
-        return f"claude{major}.{minor}{family}"
-
-    # Default: sanitize by removing all non-alphanumeric characters
-    sanitized = re.sub(r"[^a-zA-Z0-9]+", "", model_lower)
-    return sanitized or "model"
+# get_model_prefix imported from frontier_cs.models
 
 
 def read_readme(problem_path: Path) -> str:
@@ -855,18 +820,9 @@ def resolve_api_key(explicit_key: Optional[str], key_env: Optional[str]) -> Opti
     return None
 
 
+# is_reasoning delegates to is_reasoning_model from frontier_cs.models
 def is_reasoning(model: str, override: Optional[bool]) -> bool:
-    if override is not None:
-        return override
-    prefixes = ("gpt-5", "o1", "o3", "deepseek-reasoner")
-    if any(model.startswith(p) for p in prefixes):
-        return True
-
-    normalized = model.lower()
-    if "reasoning" in normalized and normalized.startswith("grok-"):
-        return True
-
-    return False
+    return is_reasoning_model(model, override)
 
 
 def generate_code(
