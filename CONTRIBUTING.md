@@ -73,9 +73,8 @@ The problem statement should include:
 
 #### chk.cc / interactor.cc (for interactive problems)
 
-Evaluator for scoring logic
+*Support partial score*
 
-#### NOTE 
 the current judge returns the partial score by parsing the message returned by `testlib.h`, making sure your `quitp` follows the following format:
 ```cpp
 quitp(score, "Ratio: %.9f [additional message str]", score, ...);
