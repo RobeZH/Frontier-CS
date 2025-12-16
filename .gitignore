@@ -49,6 +49,5 @@ berkeley-function-call-leaderboard/**/*.lock
 # Generated evaluation results (solutions are tracked)
 results/
 generation_logs/
-pairs.txt
 
 .lock
