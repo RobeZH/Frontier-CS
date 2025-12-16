@@ -25,6 +25,7 @@ research/problems/imagenet_pareto/200k
 research/problems/imagenet_pareto/2_5m
 research/problems/imagenet_pareto/500k
 research/problems/imagenet_pareto/5m
+research/problems/llm_router
 research/problems/llm_sql/large
 research/problems/llm_sql/small
 research/problems/mamba2_scan
