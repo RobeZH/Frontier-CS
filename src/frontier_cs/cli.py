@@ -34,8 +34,41 @@ from typing import List, Optional
 
 from .evaluator import FrontierCSEvaluator
 from .runner import EvaluationResult
+from .batch.pair import read_solution_config
 
 logger = logging.getLogger(__name__)
+
+
+def detect_solution_dir(path: Path) -> tuple[bool, Optional[str], Optional[Path]]:
+    """
+    Detect if a path is a solution directory with config.yaml.
+
+    Returns:
+        (is_solution_dir, problem, solution_file)
+        - is_solution_dir: True if path is a directory with config.yaml
+        - problem: Problem ID from config.yaml (or None)
+        - solution_file: Path to solution file in the directory (or None)
+    """
+    if not path.is_dir():
+        return False, None, None
+
+    problem = read_solution_config(path)
+    if not problem:
+        return False, None, None
+
+    # Look for solution file in order of preference:
+    # solve.sh (standard), solution.py, solution.cpp, or any .py file
+    for name in ["solve.sh", "solution.py", "solution.cpp"]:
+        candidate = path / name
+        if candidate.exists():
+            return True, problem, candidate
+
+    # Fallback: any Python file
+    py_files = list(path.glob("*.py"))
+    if py_files:
+        return True, problem, py_files[0]
+
+    return True, problem, None
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -46,8 +79,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Evaluate a research problem
+  # Evaluate a solution directory (auto-detects problem from config.yaml)
+  frontier-eval solutions/gpt5_flash_attn
+
+  # Evaluate a research problem with solution file
   frontier-eval flash_attn solution.py
+
+  # Override problem when evaluating a solution directory
+  frontier-eval solutions/gpt5_flash_attn --problems other_problem
 
   # Evaluate an algorithmic problem
   frontier-eval --algorithmic 1 solution.cpp
@@ -71,7 +110,7 @@ Examples:
         "problem_id",
         nargs="?",
         default=None,
-        help="Problem ID (e.g., flash_attn, gemm_optimization/squares)",
+        help="Problem ID (e.g., flash_attn) or solution directory with config.yaml",
     )
     parser.add_argument(
         "solution",
@@ -624,8 +663,35 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
         return 0
 
+    # Auto-detect solution directory mode
+    # If problem_id is a directory with config.yaml, use it as solution directory
+    solution_dir_mode = False
+    detected_problem = None
+    detected_solution_file = None
+
+    if args.problem_id:
+        candidate = Path(args.problem_id)
+        is_sol_dir, detected_problem, detected_solution_file = detect_solution_dir(candidate)
+        if is_sol_dir:
+            solution_dir_mode = True
+            if not args.quiet:
+                print(f"Detected solution directory: {candidate}")
+                print(f"  Problem (from config.yaml): {detected_problem}")
+                if detected_solution_file:
+                    print(f"  Solution file: {detected_solution_file.name}")
+
     # Get problem IDs
-    problem_ids = get_problem_ids(args, evaluator, track)
+    if solution_dir_mode:
+        # Use problem from config.yaml, or override with --problems
+        if args.problems:
+            problem_ids = [p.strip() for p in args.problems.split(",")]
+        elif detected_problem:
+            problem_ids = [detected_problem]
+        else:
+            print("Error: No problem found in config.yaml", file=sys.stderr)
+            return 1
+    else:
+        problem_ids = get_problem_ids(args, evaluator, track)
 
     if not problem_ids:
         print("Error: No problems specified. Use --help for usage.", file=sys.stderr)
@@ -634,12 +700,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Get solution code
     if args.code:
         code = args.code
+    elif solution_dir_mode and detected_solution_file:
+        # Use solution file from detected directory
+        code = detected_solution_file.read_text(encoding="utf-8")
     elif args.solution:
         solution_path = Path(args.solution)
         if not solution_path.exists():
             print(f"Error: Solution file not found: {solution_path}", file=sys.stderr)
             return 1
         code = solution_path.read_text(encoding="utf-8")
+    elif solution_dir_mode:
+        print(f"Error: No solution.py found in {args.problem_id}", file=sys.stderr)
+        return 1
     else:
         print("Error: No solution provided. Use --code or provide a file path.", file=sys.stderr)
         return 1
