@@ -10,6 +10,7 @@ Usage:
 import argparse
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
@@ -152,6 +153,44 @@ def read_solution_config(solution_dir: Path) -> Optional[str]:
     return None
 
 
+def find_solution_file(solution_dir: Path) -> Optional[Path]:
+    """Find the solution file in a solution directory."""
+    # Check common solution file names in order of preference
+    for name in ["solve.sh", "solution.py", "solution.cpp"]:
+        candidate = solution_dir / name
+        if candidate.exists():
+            return candidate
+
+    # Fallback: any Python file
+    py_files = list(solution_dir.glob("*.py"))
+    if py_files:
+        return py_files[0]
+
+    return None
+
+
+def check_solution_file(solution_dir: Path) -> tuple[Optional[Path], bool]:
+    """
+    Check solution file existence and validity.
+
+    Returns:
+        (solution_file, is_empty)
+        - solution_file: Path to solution file or None if not found
+        - is_empty: True if file exists but is empty/whitespace only
+    """
+    solution_file = find_solution_file(solution_dir)
+    if solution_file is None:
+        return None, False
+
+    try:
+        content = solution_file.read_text(encoding="utf-8").strip()
+        is_empty = len(content) == 0
+    except Exception:
+        is_empty = True
+
+    return solution_file, is_empty
+
+
 def compute_expected(
     problems: List[str],
     models: List[str],
@@ -170,15 +209,28 @@ def compute_expected(
     return expected
 
 
-def collect_actual(solutions_dir: Path) -> Dict[str, Optional[str]]:
-    """Collect actual solutions from directory."""
-    actual: Dict[str, Optional[str]] = {}
+@dataclass
+class SolutionInfo:
+    """Information about a solution directory."""
+    problem: Optional[str]  # Problem from config.yaml (None if missing)
+    solution_file: Optional[Path]  # Solution file path (None if missing)
+    is_empty: bool  # True if solution file is empty
+
+
+def collect_actual(solutions_dir: Path) -> Dict[str, SolutionInfo]:
+    """Collect actual solutions from directory with structure info."""
+    actual: Dict[str, SolutionInfo] = {}
     if not solutions_dir.is_dir():
         return actual
     for sol_dir in solutions_dir.iterdir():
         if sol_dir.is_dir() and not sol_dir.name.startswith("."):
             problem = read_solution_config(sol_dir)
-            actual[sol_dir.name] = problem
+            solution_file, is_empty = check_solution_file(sol_dir)
+            actual[sol_dir.name] = SolutionInfo(
+                problem=problem,
+                solution_file=solution_file,
+                is_empty=is_empty,
+            )
     return actual
 
 
@@ -247,8 +299,10 @@ def main():
     missing = expected_set - actual_set  # Expected but not generated
     extra = actual_set - expected_set  # Exists but not expected
 
-    # Solutions without config.yaml
-    no_config = {name for name, problem in actual.items() if problem is None}
+    # Structure issues
+    no_config = {name for name, info in actual.items() if info.problem is None}
+    no_solution_file = {name for name, info in actual.items() if info.solution_file is None}
+    empty_solution = {name for name, info in actual.items() if info.is_empty}
 
     # Print report
     print()
@@ -295,14 +349,18 @@ def main():
     if extra:
         print(info(f"{total_extra} extra solutions (not in expected set):"))
         for name in sorted(extra)[:10]:
-            problem = actual.get(name, "???")
+            info_obj = actual.get(name)
+            problem = info_obj.problem if info_obj else None
             print(f"    {dim(name)}: {problem or dim('no config.yaml')}")
         if len(extra) > 10:
             print(f"    {dim(f'... and {len(extra) - 10} more')}")
         print()
 
-    # Solutions without config.yaml
+    # Structure issues
+    has_issues = False
+
     if no_config:
+        has_issues = True
         print(error(f"{len(no_config)} solutions missing config.yaml:"))
         for name in sorted(no_config)[:10]:
             print(f"    {red(name)}")
@@ -310,19 +368,44 @@ def main():
             print(f"    {dim(f'... and {len(no_config) - 10} more')}")
         print()
 
+    if no_solution_file:
+        has_issues = True
+        print(error(f"{len(no_solution_file)} solutions missing solve.sh/solution.py:"))
+        for name in sorted(no_solution_file)[:10]:
+            print(f"    {red(name)}")
+        if len(no_solution_file) > 10:
+            print(f"    {dim(f'... and {len(no_solution_file) - 10} more')}")
+        print()
+
+    if empty_solution:
+        has_issues = True
+        print(warning(f"{len(empty_solution)} solutions with empty solution file:"))
+        for name in sorted(empty_solution)[:10]:
+            info_obj = actual.get(name)
+            file_name = info_obj.solution_file.name if info_obj and info_obj.solution_file else "?"
+            print(f"    {yellow(name)} ({dim(file_name)})")
+        if len(empty_solution) > 10:
+            print(f"    {dim(f'... and {len(empty_solution) - 10} more')}")
+        print()
+
     # Summary
     print(dim("─" * 40))
-    if total_missing == 0 and len(no_config) == 0:
-        print(success("All expected solutions are generated with valid config.yaml"))
+    all_good = total_missing == 0 and not has_issues
+    if all_good:
+        print(success("All expected solutions are generated with valid structure"))
     else:
         if total_missing > 0:
             print(f"  Run {bold('generate_solutions.py')} to generate missing solutions")
         if no_config:
             print(f"  Fix solutions missing {bold('config.yaml')}")
+        if no_solution_file:
+            print(f"  Fix solutions missing {bold('solve.sh/solution.py')}")
+        if empty_solution:
+            print(f"  Fix solutions with {bold('empty solution files')}")
     print(dim("─" * 40))
 
     # Exit code
-    return 1 if (no_config or total_missing > 0) else 0
+    return 1 if (has_issues or total_missing > 0) else 0
 
 
 if __name__ == "__main__":
