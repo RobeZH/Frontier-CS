@@ -224,12 +224,8 @@ python research/scripts/generate_solutions.py
 # All problems × one model
 python research/scripts/generate_solutions.py --model gpt-5
 
-# Wildcard problems × one model
-python research/scripts/generate_solutions.py --problem "gemm_*" --model gpt-5
-
-# Multiple models: use --models-file
-echo -e "gpt-5\nclaude-sonnet-4-5" > models.txt
-python research/scripts/generate_solutions.py --problem "gemm_*" --models-file models.txt
+# Wildcard problems × multiple models
+python research/scripts/generate_solutions.py --problem "gemm_*" --model gpt-5 claude-sonnet-4-5
 
 # Retry failed generations (just run again)
 python research/scripts/generate_solutions.py --model gpt-5
@@ -240,8 +236,8 @@ python research/scripts/generate_solutions.py --model gpt-5
 | Option | Description |
 |--------|-------------|
 | `--problem PATTERN` | Problem name pattern (wildcards supported), repeatable |
-| `--model MODEL` | Single model to use |
-| `--models-file FILE` | File with one model per line (for multiple models) |
+| `--model MODEL...` | Model(s) to use, e.g. `--model gpt-5 claude-sonnet-4-5` |
+| `--models-file FILE` | File with one model per line (alternative to `--model`) |
 | `--dryrun` | Preview what would be generated |
 | `--force` | Regenerate existing solutions |
 | `--variants N` | Generate N solutions per (problem, model) pair |
