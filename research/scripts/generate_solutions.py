@@ -83,13 +83,6 @@ def ensure_numpy_version(required: str) -> None:
         )
 
 
-def resolve_api_key(explicit_key: Optional[str], key_env: Optional[str]) -> Optional[str]:
-    """Resolve API key from explicit value or environment variable."""
-    if explicit_key:
-        return explicit_key
-    if key_env:
-        return os.getenv(key_env)
-    return None
 
 
 def is_reasoning(model: str, override: Optional[bool]) -> bool:
@@ -103,7 +96,6 @@ def generate_code(
     model: str,
     api_key: Optional[str],
     log_file: Path,
-    api_base: str,
     is_reasoning_model: bool,
     timeout: float,
     problem_name: str = "",
@@ -111,11 +103,6 @@ def generate_code(
     docker_config: Optional[Dict] = None,
 ) -> str:
     """Generate solution code using an LLM."""
-    base_url = (api_base or "").strip()
-    if base_url.lower() in {"none", ""}:
-        base_url = None
-    else:
-        base_url = base_url.rstrip("/")
 
     # Get environment-specific system prompt
     system_prompt = get_system_prompt_for_problem(problem_name, problem_path, docker_config)
@@ -131,7 +118,7 @@ def generate_code(
         model,
         is_reasoning_model=is_reasoning_model,
         timeout=timeout,
-        base_url=base_url,
+        base_url=None,
         api_key=api_key,
     )
 
@@ -454,10 +441,6 @@ Examples:
 
     # API configuration
     api_group = parser.add_argument_group("API configuration")
-    api_group.add_argument("--api-key", help="API key value")
-    api_group.add_argument("--api-key-env", help="Environment variable for API key")
-    api_group.add_argument("--api-base", default=os.getenv("MODEL_API_BASE", "https://api.openai.com/v1"),
-                           help="Base URL for the API")
     api_group.add_argument("--timeout", type=float, default=600.0,
                            help="Request timeout in seconds")
 
@@ -502,9 +485,6 @@ Examples:
         else:
             print("ERROR: Provide --problem, --problems-file, --solution, or --solutions-file")
             sys.exit(1)
-
-    # Resolve API key
-    default_api_key = resolve_api_key(args.api_key, args.api_key_env)
 
     # Validate args
     if args.variants is not None and args.variants < 1:
@@ -699,7 +679,7 @@ Examples:
         models_source_desc = f"models.txt ({models_path})"
 
     # Build key pools
-    provider_key_pools = build_key_pools(default_api_key)
+    provider_key_pools = build_key_pools()
     if provider_key_pools:
         for provider, pool in provider_key_pools.items():
             print(f"Loaded {pool.size()} API key(s) for provider '{provider}'.")
@@ -811,7 +791,7 @@ Examples:
                 print(f"  {red('✗')} {red('ERROR:')} {message}")
                 return ("failed", task.solution_name, message, task.provider, None)
         else:
-            api_key_for_task = get_fallback_api_key(task.provider, default_api_key)
+            api_key_for_task = get_fallback_api_key(task.provider)
 
         try:
             code = generate_code(
@@ -819,7 +799,6 @@ Examples:
                 model=task.model,
                 api_key=api_key_for_task,
                 log_file=log_file,
-                api_base=args.api_base,
                 is_reasoning_model=task.reasoning_model,
                 timeout=args.timeout,
                 problem_name=task.problem_name,

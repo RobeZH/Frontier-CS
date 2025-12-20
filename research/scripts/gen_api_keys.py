@@ -121,27 +121,22 @@ def _collect_provider_keys(provider: str, base_names: List[str]) -> List[str]:
     return keys
 
 
-def build_key_pools(primary_openai_key: Optional[str] = None) -> Dict[str, APIKeyPool]:
-    """Build API key pools for all providers."""
+def build_key_pools() -> Dict[str, APIKeyPool]:
+    """Build API key pools for all providers from environment variables."""
     pools: Dict[str, APIKeyPool] = {}
     for provider, bases in PROVIDER_ENV_KEY_MAP.items():
         keys = _collect_provider_keys(provider, bases)
-        if provider == "openai" and primary_openai_key:
-            key = primary_openai_key.strip()
-            if key and key not in keys:
-                keys.insert(0, key)
         if keys:
             pools[provider] = APIKeyPool(keys, name=provider)
     return pools
 
 
-def get_fallback_api_key(provider: str, default_key: Optional[str] = None) -> Optional[str]:
-    """Get a fallback API key for a provider without using the pool."""
+def get_fallback_api_key(provider: str) -> Optional[str]:
+    """Get a fallback API key for a provider from environment variables."""
     candidate_keys: List[Optional[str]] = []
 
     if provider == "openai":
         candidate_keys.extend([
-            default_key,
             os.getenv("OPENAI_API_KEY"),
             os.getenv("OPENAI_API_KEY2"),
             os.getenv("OPENAI_API_KEY_2"),
