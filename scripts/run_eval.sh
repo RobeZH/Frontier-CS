@@ -482,10 +482,23 @@ fi
 cd "$PUBLIC_DIR"
 $CMD
 
-# Push results if requested
+# Push results if there are changes
 echo ""
-if confirm_push; then
-    push_results "$RESULTS_REPO" "$TRACK"
+if [[ -d "$RESULTS_REPO/.git" ]]; then
+    # Check for track-relevant changes
+    if [[ "$TRACK" == "algorithmic" ]]; then
+        CHANGES=$(git -C "$RESULTS_REPO" status --porcelain algorithmic/ 2>/dev/null | head -1)
+    else
+        CHANGES=$(git -C "$RESULTS_REPO" status --porcelain batch/ 2>/dev/null | head -1)
+    fi
+
+    if [[ -n "$CHANGES" ]]; then
+        if confirm_push; then
+            push_results "$RESULTS_REPO" "$TRACK"
+        fi
+    else
+        echo "No changes to push"
+    fi
 fi
 
 # Cleanup SkyPilot clusters
